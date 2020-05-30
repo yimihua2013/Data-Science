@@ -1,0 +1,127 @@
+---
+title: "R Tutorial: Propensity Score Matching"
+author: "Yimi Zhao"
+date: "5/30/2020"
+output: html_document
+---
+
+Data source: Getting Started with Matching Methods (https://data.library.virginia.edu/getting-started-with-matching-methods).  
+
+```{r, message = F, warning = F}
+library(ggplot2)
+library(MatchIt)
+
+```
+
+### Data Sample  
+The data sample (http://static.lib.virginia.edu/statlab/materials/data/brfss_2015_sample.csv) is from the 2015 BRFSS survey (https://www.cdc.gov/brfss/index.html). BRFSS stands for Behavioral Risk Factor Surveillance System. BRFSS is a CDC telephone survey that collects state data about U.S. residents regarding their health-related risk behaviors and chronic health conditions. The data sample has 5000 records and 7 variables.    
+
+* COPD: Ever told you have chronic obstructive pulmonary disease (COPD)?  
+* SMOKE: Adults who are current smokers (0 = no, 1 = yes)  
+* RACE: Race group  
+* AGE: age group  
+* SEX: gender  
+* WTLBS: weight in lbs  
+* AVEDRNK2: During the past 30 days, when you drank, how many drinks did you drink on average?  
+
+Research question: Does smoking increase the chance of contracting COPD?  
+
+
+```{r}
+
+brfss <- read.csv("brfss_2015_sample.csv")
+summary(brfss)
+
+```
+
+### Check Data Balance and Overlap  
+For categorical variables:  
+
+```{r}
+p <- ggplot(brfss, aes(fill = factor(SMOKE))) + 
+  geom_bar(position = "dodge") + 
+  scale_fill_discrete("Smoke")
+p + aes(x = AGE)
+p + aes(x = RACE)
+p + aes(x = SEX)
+
+```
+
+For continuous variables:  
+
+```{r}
+# Approach 1: histograms
+ggplot(brfss, aes(x = WTLBS, fill = factor(SMOKE))) + 
+       geom_histogram(position = "identity") +
+       scale_fill_discrete("Smoke")
+ 
+ggplot(brfss, aes(x = AVEDRNK2, fill = factor(SMOKE))) + 
+  geom_histogram(position = "identity", binwidth = 1) +
+  scale_fill_discrete("Smoke")
+
+# Approach 2: quantile distribution by group
+tapply(brfss$WTLBS, brfss$SMOKE, quantile, probs = seq(0.2, 1, 0.1))
+tapply(brfss$AVEDRNK2, brfss$SMOKE, quantile, probs = seq(0.2, 1, 0.1))
+
+```
+
+The graps of categorical variables show a lack of balance; Meanwhile, the balance of the two continuous variables seems fine but there appears to be a slight lack of overlap at the higher values.
+
+### Propensity Score Matching
+
+```{r}
+m.out <- MatchIt::matchit(SMOKE ~ RACE + AGE + SEX + WTLBS + AVEDRNK2, data = brfss, 
+                          method = "nearest", model = "logit", ratio = 1, replace = F)
+
+```
+
+Examining the matching  
+
+```{r}
+# Approach 1
+plot(summary(m.out, standardize = T))
+```
+
+On the left side of the plot is the standardized difference in means of covariates between smokers and non-smokers for all the data. The right side shows the standardized difference in means after matching. We hope to see all the points near 0. Specifically, we want to see large differences in means become smaller. The three largest differences prior to matching are now tiny. The dark lines show mean differences that increased after balance. This is actually common when you match on covariates that were already pretty well balanced to begin with. Since the standardized mean difference is still less than 0.1, we’re not too concerned about it.  
+
+
+```{r}
+# Approach 2: compare the distribution of propensity scores before & after matching
+plot(m.out,  type = "jitter", interactive = FALSE)
+plot(m.out,  type = "hist")
+```
+
+Matching Results  
+
+```{r}
+summary(m.out)
+
+```
+
+The first two sections look at all the data and the matched data, respectively. The first, second and fourth columns are probably the easiest to examine. The first and second columns show the means for treated (smokers) and control (non-smokers) groups. Prior to matching, for example, we have 16% of smokers over age 65 versus 31% who are not smokers. That’s an absolute difference of about 15%. After matching we have roughly an equal proportion of subjects over age 65 in both groups with a negligible mean difference. The third section, Percent Balance Improvement, shows how much we have increased or decreased balance. __Negative numbers in the Mean Diff column indicate covariates where balance actually got worse.__ The AGE55-64 value of -388 seems pretty terrible. What happened was the balance went from 21.9% vs 22.5% pre-match to 21.9% vs 18.9% post-match. Ideally we don’t want balance getting worse, but in this case the balance is still quite good. The last section tells us we now have equal numbers (762) in both the treated and control groups.  
+
+The columns labeled eQQ refer to empirical quantile-quantile plots. They provide the median, mean, and maximum distance between the empirical quantile functions of the treated and control groups. Values greater than 0 indicate deviations between the groups in some part of the empirical distributions. These are most useful for continuous variables. We can view these plots by calling plot() on the matching object. The which.xs argument allows us to specify which variables to plot. Below we plot weight and number of drinks.  
+
+```{r}
+plot(m.out, which.xs = c("WTLBS", "AVEDRNK2"))
+
+```
+
+### Matched Data and Further Data Analysis
+
+```{r}
+# grab the matched dataset
+brfss.match <- match.data(m.out)
+
+# Perform logistic regression to analyze how smoking affects the probability of contracting COPD
+brfss.match$SMOKE <- factor(brfss.match$SMOKE, labels = c("No", "Yes"))
+mod <- glm(COPD ~ SMOKE + AGE + RACE + SEX + WTLBS + AVEDRNK2, 
+           data = brfss.match, family = "binomial")
+summary(mod)
+exp(confint(mod, parm = "SMOKEYes"))
+
+```
+
+It appears that smokers are at least 2.9 times more likely to report COPD than non-smokers, controlling for age, sex, race, weight and drinking.  
+
+
