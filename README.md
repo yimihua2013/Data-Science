@@ -1,2 +1,2 @@
-# Data Science Notes Repo
+### Data Science Notes Repo
 
