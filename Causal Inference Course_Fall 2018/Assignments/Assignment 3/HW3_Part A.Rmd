@@ -1,0 +1,159 @@
+---
+title: "HW3_Part A"
+author: "Yongchao Zhao"
+date: "9/30/2018"
+output: word_document
+---
+## Part A: Linear Parametric form  
+### Question 1: Simulate the data  
+
+(a) Start with the marginal distribution of X. Simulate as X~N(0,1) with sample size of 1000. Set the seed to be 1234.
+
+```{r}
+# DGP
+set.seed(1234)
+X <- rnorm(1000, mean=0, sd=1)
+
+summary(X)
+
+```
+
+(b) Look at the DGP. What role does X play?  
+
+
+(c) The distribution of binary Z depends on the value of X. Therefore, the next step is to simulate Z from p(Z|X) = Binomial(p), where the vector of probabilities can vary across observations. Come up with a strategy for generating the vector Z conditional on X that forces you to create be explicit about how these probabilities are conditional on X (an inverse logit function would be one strategy but there are others). Make sure that X is significantly associated with Z and that the vector of probabilities used to draw Z doesn’t vary below .05 or above .95.  
+
+```{r}
+# Probability of treatment assignment by using inverse logit function
+library(gtools)
+p <- inv.logit(X, min = .05, max = .95)
+summary(p)
+
+# treatment assignment
+Z <- as.factor(rbinom(1000, 1, p))
+table(Z)
+
+```
+
+(d) The last step is to simulate Y from p(Y0,Y1|Z,X). Come up with a strategy for simulating each potential outcome with appropriate conditioning on Z and X with the following stipulations. 
+* (i) Make sure that E[Y(1)|X] - E[Y(0)|X] = 5.
+* (ii) Make sure that X has a linear and statistically significant relationship with the outcome.
+* (iii) Finally, set your error term to have a standard deviation of 1 and allow the residual standard error to be different for the same person across potential outcomes.
+* (iv) Create a data frame containing X,Y,Y0,Y1 and Z and save it for use later.
+
+```{r}
+# simulate potential outcomes assuming a linear relationship (set beta0 = 10, beta1=1, and tao =5)
+Y0 <- 10 + X + rnorm(1000, 0, 1)
+Y1 <- 10 + X + 5 + rnorm(1000, 0, 1)
+
+# generate the simulated dataset
+data.lin <- data.frame(X, Z, Y0, Y1)
+data.lin$Y <- ifelse(data.lin$Z == 1, data.lin$Y1, data.lin$Y0) # observed outcome
+
+head(data.lin)
+```
+
+(e) Think about the difference between the DGP used in this homework and the first DGP from previous homework (completely randomized experiment). How is the difference in the study design encoded?  
+
+
+(f) Calculate the SATE from 1.d.iv     
+
+```{r}
+(SATE <- mean(data.lin$Y1 - data.lin$Y0))
+```
+
+### Question 2: Playing the role of the researcher  
+(a) Estimate the treatment effect using a difference in mean outcomes across treatment groups (save it for use later).  
+
+```{r}
+(avgs <- tapply(data.lin$Y, data.lin$Z, mean))
+(t_mean_diff <- avgs[[2]] - avgs[[1]])
+
+```
+
+(b) Estimate the treatment effect using a regression of the outcome on the treatment indicator and covariate (save it for use later). 
+
+```{r}
+summary(lm(Y ~ Z + X, data=data.lin))
+
+(t_regreesion <- coef(lm (Y ~ Z + X, data = data.lin))[[2]])
+
+```
+
+(c) Create a scatter plot of X versus the observed outcome with different colors for treatment and control observations (suggested: red for treated and blue for control). If you were the researcher would be comfortable using linear regression in this setting?  
+
+```{r}
+library(ggplot2)
+data.lin$Z.desc <- ifelse(data.lin$Z == 1, "1-treatment", "0-control")
+ggplot(data.lin, aes(X, Y, color=Z.desc)) + geom_point() + scale_color_manual(values = c("blue","red"))
+       
+```
+
+###Question 3: Exploring the properties of estimators  
+(a) Create a scatter plot of X versus each potential outcome with different colors for treatment and control observations (suggested: red for Y(1) and blue for Y(0)). Is linear regression a reasonable model to estimate causal effects for the observed data set? Why or why not?  
+
+```{r}
+# reshape dataset from wide to long for plotting
+library(tidyr)
+data.lin_new <- data.lin
+data.lin_new$ID <- 1:1000
+data.lin_new_long <- gather(data.lin_new, po_outcomes, po_values, Y0:Y1, factor_key = T)
+# check the reshape
+head(data.lin_new, 3)
+subset(data.lin_new_long, ID %in% c(1:3))
+
+# Plot
+ggplot(data.lin_new_long, aes(X, po_values, color = po_outcomes)) + geom_point() + scale_color_manual(values=c("blue", "red"))
+
+```
+
+(b) Find the bias of each of the estimates calculated by the researcher in Question 2 relative to SATE.  
+
+```{r}
+# bias of mean difference approach
+(bias_mean_diff <- t_mean_diff - SATE)
+
+# bias of regression approach
+(bias_regression <- t_regreesion - SATE)
+   
+```
+
+(c) Think harder about the practical significance of the bias by dividing this estimate by the standard deviation of the observed outcome Y.  
+
+```{r}
+# practical significance of bias of mean difference approach
+bias_mean_diff/sd(data.lin$Y)
+
+# practical significance of bias of regression approach
+bias_regression/sd(data.lin$Y)
+
+```
+
+
+(d) Find the bias of each of the estimators by creating randomization distributions for each. [Hint: When creating randomization distributions remember to be careful to keep the original sample the same and only varying treatment assignment and the observed outcome.]  
+
+```{r}
+data.lin.rand <- data.lin[, c("X", "Z", "Y0", "Y1", "Y")]
+data.lin.rand$ID <- 1:1000
+
+# randomly assign the treatment
+set.seed(100)
+sampling <- sample(data.lin.rand$ID, 500, replace = F)
+data.lin.rand$Z_rand <- as.factor(ifelse(data.lin.rand$ID %in% sampling, 1, 0))
+
+# new observed outcome
+data.lin.rand$Y_rand <- ifelse(data.lin.rand$Z_rand == 1, data.lin.rand$Y1, data.lin.rand$Y0)
+summary(data.lin.rand)
+
+# new bias of mean differences 
+(avgs_new <- tapply(data.lin.rand$Y_rand, data.lin.rand$Z_rand, mean))
+(t_mean_diff_new <- avgs_new[[2]] - avgs_new[[1]])
+(bias_mean_diff_new <- t_mean_diff_new - SATE)
+
+# new bias of regression
+summary(lm(Y_rand ~ Z_rand + X, data = data.lin.rand))
+(t_regreesion_new <- coef(lm(Y_rand ~ Z_rand + X, data = data.lin.rand))[[2]])
+(bias_regression_new <- t_regreesion_new - SATE)
+
+```
+

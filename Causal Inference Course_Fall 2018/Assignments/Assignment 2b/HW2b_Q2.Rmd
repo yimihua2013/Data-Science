@@ -1,0 +1,136 @@
+---
+title: "Assignment 2b_Q2"
+author: "Yongchao Zhao"
+date: "9/18/2018"
+output: word_document
+---
+
+## Problem 2  
+
+In a randomized block design, randomization occurs separately within blocks. In many situations, the ratio of treatment to control observations is different across blocks. In addition, the treatment effect may vary across sites. For this problem, you will simulate data sets for a randomized block design that includes a binary indicator for female as a blocking variable. You will then estimate the ATE with two estimators: one that accounts for the blocking structure and one that does not. You will compare the bias and efficiency of these estimators. We will walk you through this in steps.  
+
+(a)First simulate the blocking variable and potential outcomes. In particular:  
+• Set the seed to by 1234  
+• Generate female as blocking variable (Female vs. Other Ratio (30:70))   
+• Generate Y(0) and Y(1) with the following features: – the intercept is 70 – the residual standard deviation is 1.     
+– treatment effect varies by block: observations with female=1 have treatment effect of 7 and those with female=0 have a treatment effect of 3. [Hint: Note that we are assuming that being female affects treatment effect but does not directly affect the average test score otherwise.]
+
+```{r}
+set.seed(1234)
+# simulate dataset
+female <- as.factor(c(rep(1, 30), rep(0, 70)))
+y0 <- rnorm(100, mean=70, sd=1)
+y1 <- c(rnorm(30, mean=77, sd=1),rnorm(70, mean=73, sd=1))
+
+mydata <- data.frame(female, y0, y1)
+
+# check the dataset
+head(mydata)
+summary(mydata)
+tapply(mydata$y1, mydata$female, mean)
+tapply(mydata$y1, mydata$female, sd)
+
+```
+
+(b)Calculate the overall SATE and the SATE for each block.  
+
+```{r}
+# overall SATE
+(SATE_all <- mean(mydata$y1 -mydata$y0))
+
+# SATE for each block
+library(dplyr)
+mydata %>% group_by(female) %>% summarise(mean(y1-y0))
+
+```
+Now create a function for assigning the treatment. In particular, within each block create different assignment probabilities:  
+* Pr(Z=1 | female=0) = .6  
+* Pr(Z=1 | female=1) = .4  
+Generate the treatment and create a vector for the observed outcomes implied by that treatment.  
+We will use this to create a randomization distribution for two different estimators for the SATE. Obtain 100,000 draws from that distribution.  
+
+```{r}
+assign.treatment <- function(dataset){
+   newdata <- dataset
+   # assign treatment with specific probilities
+   newdata$treatment <- NA   
+   newdata[newdata$female==0,]$treatment <- sample(c(1,0), nrow(newdata[newdata$female==0,]), 
+                                        replace=T, prob=c(0.6, 0.4))
+   newdata[newdata$female==1,]$treatment <- sample(c(1,0), nrow(newdata[newdata$female==1,]), 
+                                        replace=T, prob=c(0.4, 0.6))
+   # create observed outcome variable
+   newdata$outcome <- ifelse(newdata$treatment == 1, newdata$y1, newdata$y0)
+   return(newdata)
+}
+# test the function
+head(assign.treatment(mydata))
+table(treatment = assign.treatment(mydata)$treatment, female=assign.treatment(mydata)$female)
+```
+
+(c)Plot the (Monte Carlo estimate of the) randomization distribution for each of the two estimators: difference in means and regression. Either overlay the plots (with different colors for each) or make sure the xlim on both plots is the same.
+
+```{r}
+times <- 100000
+SATE_df <- data.frame(SATE_mean=rep(NA, times), SATE_regression = rep(NA, times))
+
+for (i in 1:times){
+  mydata_new <- assign.treatment(mydata)
+ # calculate SATE: difference in means
+  avgs <- tapply(mydata_new$outcome, mydata_new$treatment, mean)
+  SATE_df$SATE_mean[i] <- avgs[[2]] - avgs[[1]]
+  # calculate SATE: regression
+  SATE_df$SATE_regression[i] <- coef(lm(outcome ~ treatment + female, data= mydata_new))[[2]]
+}
+
+summary(SATE_df)
+
+# plots 
+hist(SATE_df$SATE_mean, xlim=c(2,5), main = "SATE: difference in means")
+abline(v=c(mean(SATE_df$SATE_mean), SATE_all), col= c("blue", "red"), lty = c(3,1))
+
+hist(SATE_df$SATE_regression, xlim=c(2,5), main = "SATE: regression")
+abline(v= c(mean(SATE_df$SATE_regression), SATE_all), col= c("blue", "red"), lty=c(3,1))
+   
+```
+
+(d)Calculate the bias and efficiency of each estimator. Also calculate the root mean squared error.  
+
+```{r}
+# bias, efficiency and RMSE of SATE estimator using differences in means
+(mean_bias <- mean(SATE_df$SATE_mean - SATE_all)) #bias
+(mean_se <- sd(SATE_df$SATE_mean)/sqrt(times)) #efficiency
+(mean_rmse <- sqrt(mean((SATE_df$SATE_mean - SATE_all)^2))) #rmse
+
+# bias,efficiency and RMSE of SATE estimator using regression
+(regression_bias <- mean(SATE_df$SATE_regression - SATE_all))# bias
+(regression_se <- sd(SATE_df$SATE_regression)/sqrt(times)) #efficiency
+(regression_rmse <- sqrt(mean((SATE_df$SATE_regression - SATE_all)^2))) #rmse
+
+```
+
+(e)Why is the estimator that ignores blocks biased? Is the efficiency meaningful here? Why did I have you calculate the RMSE?  
+_According to the results from (d) and the plots from (c), the SATE estimator using differences in means which ignores blocks is biased, because the ratio of treated to control groups is different across blocks (i.e., treatment assignment probability for female and others is 0.4 vs. 0.6), which leads to imbalanced potential outcomes between treatment and control groups._  
+
+_The efficiency is not meaningful here because both approaches yield almost the same standard error values._    
+
+_RMSE measures the difference between values predicted by a model or an estimator and the values observed, a smaller value indicates better model performance or better estimation. In our case, the RMSE value of SATE estimator using regression is smaller (0.176 vs. 0.355) than the RSME value of the difference-in-means method, thus, the regression is a better approach for estimating SATE._  
+
+(f)Describe one possible real-life scenario where treatment assignment probabilities and/or treatment effects vary across levels of a covariate.  
+
+_For example, we want to design a study to examine the effect of a math training program on college students' math performance. The treatment is receiving the math training program, while the control condition stays business-as-usual. The treatment effect is then the difference between a student's post-training math score and pre-test score. According to previous results, we know boys and girls perform differently in math. Moreover, the accessible population we are going to use for drawing random samples has more girls than boys. Thus, gender is a covariate in this study. Therefore, to make a good design for this study, the treatment assignment probabilities and treatment effects might vary across the two gender groups._  
+
+
+(g)How could you use a regression to estimate the treatment effects separately by group? Calculate estimates for our original sample and treatment assignment (with seed 1234).  
+
+```{r}
+# regression by separate groups
+set.seed(1234)
+mydata2 <- assign.treatment(mydata) # original sample and treatment assignment
+
+# regression for females
+summary(lm(outcome ~ treatment, data = mydata2, subset = (female ==1)))
+
+# regression for others
+summary(lm(outcome ~ treatment, data = mydata2, subset = (female ==0)))
+
+```

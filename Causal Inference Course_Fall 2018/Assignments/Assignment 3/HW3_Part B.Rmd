@@ -1,0 +1,125 @@
+---
+title: "HW3_PartB"
+author: "Yongchao Zhao"
+date: "9/30/2018"
+output: word_document
+---
+## Part B: Non-Linear Parametric form  
+### Question 1: Simulate the data  
+(a) Create function sim.nlin with the following DGP.  
+  * (i) X should be drawn from a uniform distribution between 0 and 2.  
+  * (ii) Treatment assignment should be drawn from a Binomial distribution with the following properities (make sure you save the p vector for use later).  
+  E[Z | X] = p = logit−1(−2 + X2)   Z ∼ Binom(N, p)  
+ * (iii) The response surface (model for Y(0) and Y(1)) should be drawn from the following distributions:  
+       Y(0) = 2X + ε0  
+       Y(1) = 2X+3X2 +ε1  
+  where both error terms are normally distributed with mean 0 and standard deviation of 1.  
+* (iv) Make sure the returned dataset has a column for the probability of treatment assignment as well.  
+
+```{r}
+# Create function sim.nin for DGP 
+library(gtools)
+sim.nlin<- function(N) {
+  set.seed(1234)
+  X = runif(N, min = 0, max = 2) # uniform distribution between 0 and 2
+  p = inv.logit(-2+X^2) # probability of treatment assignment
+  Z = as.factor(rbinom(N,1,p)) # treatment assignment
+  
+  # potential outcomes
+  Y0 = 2*X + rnorm(N, 0, 1)
+  Y1 = 2*X + 3*X^2 + rnorm(N, 0, 1)
+
+ return(data.frame(X, Z, p, Y0, Y1))
+}
+
+```
+
+(b) Simulate a data set called data.nlin with sample size 1000.  
+
+```{r}
+data.nlin <- sim.nlin(1000)
+# create observed outcome variable
+data.nlin$Y <- ifelse(data.nlin$Z == 1, data.nlin$Y1, data.nlin$Y0)
+
+summary(data.nlin)
+
+```
+
+(c) Make the following plots.  
+* (i) Create overlaid histograms of the probability of assignment.
+* (ii) Make a scatter plot of X versus the observed outcomes versus X with different colors for each treatment group.
+* (iii) Create a scatter plot of X versus each potential outcome with different colors for treatment and control observations (suggested: red for Y(1) and blue for Y(0)). Does linear regression of Y ond X seem like a good model for this response surface?
+
+```{r}
+# Overlaid histograms of probability of assignment
+hist(data.nlin[data.nlin$Z == 1,]$p, col="red", main = "Overlaid Histograms of Probability of Assignment", 
+     xlab = "Probability (red-treatment, blue-control)", xlim = c(0,1))
+hist(data.nlin[data.nlin$Z == 0,]$p, col="blue", add =T)
+
+# scatterplot of X and observed outcomes
+data.nlin$Z.desc <- ifelse(data.nlin$Z == 1, "1-treatment", "0-control")
+library(ggplot2)
+ggplot(data.nlin, aes(X, Y, col = Z.desc)) + geom_point() + scale_color_manual(values = c("blue","red"))
+
+# Scatterplot of X and potential outcomes
+ # reshape data from wide to ling for plotting
+library(tidyr)
+data.nlin_new<- data.nlin
+data.nlin_new$ID <- 1:1000
+data.nlin_new_long <- gather(data.nlin_new, po_outcomes, po_values, Y0:Y1, factor_key = T)
+ # check the reshape
+head(data.nlin_new, 3)
+subset(data.nlin_new_long, ID %in% c(1:3))
+ # Scatterplot
+ggplot(data.nlin_new_long, aes(X, po_values, colour = po_outcomes)) + geom_point() + scale_color_manual(values = c("blue", "red"))
+
+```
+
+(d) Create randomization distributions to investigate the properties of each of 3 estimators with respect to SATE: (1) difference in means, (2) linear regression of the outcome on the treatment indicator and X,(3) linear regression of the outcome on the treatment indicator, X, and X2.  
+
+```{r}
+# generate randomization distributions of the treatment
+data.nlin.rand <- data.nlin
+data.nlin.rand$ID <- 1:1000
+
+set.seed(123)
+sampling <- sample(data.nlin.rand$ID, 500, replace = F)
+data.nlin.rand$Z_rand <- as.factor(ifelse(data.nlin.rand$ID %in% sampling, 1, 0))
+data.nlin.rand$Y_rand <- ifelse(data.nlin.rand$Z_rand == 1, data.nlin.rand$Y1, data.nlin.rand$Y0)
+
+head(data.nlin.rand)
+summary(data.nlin.rand)
+
+# SATE of difference in means
+(avgs <- tapply(data.nlin.rand$Y_rand, data.nlin.rand$Z_rand, mean))
+(t_diff <- avgs[[2]] -avgs[[1]])
+
+# SATE of regression 1
+mod1 <- lm(Y_rand ~ Z_rand + X, data=data.nlin.rand)
+summary(mod1)
+(t_regression01 <- coef(mod1)[[2]])
+
+# SATE of regression 2
+mod2 <- lm(Y_rand ~ Z_rand + X + I(X^2), data=data.nlin.rand)
+summary(mod2)
+(t_regression02 <- coef(mod2)[[2]])
+
+```
+
+(e) Calculate the standardized bias (bias divided by the standard deviation of Y) of these estimators relative
+to SATE.  
+```{r}
+# SATE
+(SATE <- mean(data.nlin.rand$Y1) - mean(data.nlin.rand$Y0))
+
+# standardized bias of mean differences
+(t_diff-SATE)/sd(data.nlin.rand$Y_rand)
+
+# standardized bias of regression 01
+(t_regression01-SATE)/sd(data.nlin.rand$Y_rand)
+
+# standardized bias of regression 02
+(t_regression02-SATE)/sd(data.nlin.rand$Y_rand)
+
+```
+

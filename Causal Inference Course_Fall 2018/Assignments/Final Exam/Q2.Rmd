@@ -1,0 +1,259 @@
+---
+title: "ZhaoY_Q2"
+author: "Yongchao Zhao"
+date: "December 15, 2018"
+output: word_document
+---
+
+### Q2: Instrumental Variables  
+All worlds should have one binary instrument, one binary treatment variable, and potential outcomes for one variable. You will need to generate potential outcomes both for the outcome variable and the treatment variable (just as in Assignment 5). In World A all assumptions are satisfied. In World B one key assumption is violated. In World C a different key assumption is validated. Define the typical estimand in IV analyses. Estimate a causal effect for this estimand using TSLS.
+
+###(1) Description of a Hypothetical Real Life Scenario
+Suppose we want to estimate the effect of _We Speak NYC video_ program on new immigrants' English comprehensive skills. [We Speak NYC](https://wespeaknyc.cityofnewyork.us/) is the City's English language learning program, the videos tell the stories of New Yorkers who have come from all over the world to make New York City their home, and focus on important topics and model language that people can use in daily life. The program aims to help English language learners improve their language skills, learn about their rights, and access City services.  
+
+Because it is impossible to force new immigrants to watch the online videos or to refrain from watching, watching cannot be randomized. Instead, if this study is actually performed, what is randomized will be the encouragement to watch the videos, in other words, a randomized encouragement design. 
+
+###(2) Data Generating Process
+Generate data for a sample of 1000 individuals.  
+
+* The instrument, Z, is an encouragement welcome email/letter from the Mayor. 1 - email/letter received, 0 - email/letter not received, probability of receiving the treatment should be 0.5;
+* The treatment, D, is "watching We Speak NYC videos";
+* The outcome is the score on the English comprehensive skills;
+* For __world A__ - all assumptions are satisfied: 
+    + Assume 25% of individuals are compliers, 60% are never takers, 15% are always takers, and no defiers.
+    + The average treatment effect for the compliers is 4.
+    + The average Y(0) for never takers is 0; The average Y(0) for compliers is 3; The average Y(0) for always takers is 6.
+    + The residual standard deviation is 1 for everyone in the sample.
+* For __world B__ - Monotonicity assumption is violated, other assumptions hold:  
+    + Assume 25% of individuals are compliers, 55% are never takers, 15% are always takers, and 5% are defiers.
+    + The average treatment effect for the compliers is 4.
+    + The average Y(0) for never takers is 0; The average Y(0) for defiers is 0; The average Y(0) for compliers is 3; The average Y(0) for always takers is 6.
+    + The residual standard deviation is 1 for everyone in the sample.
+* For __world C__ - exclusion restriction assumption is violated, other assumptions hold:  
+    + Assume 25% of individuals are compliers, 60% are never takers, 15% are always takers, and no defiers.
+    + The average treatment effect for the compliers is 4; The average treatment effect for the never takers is 0; The average treatment effect for the always takers is 2; 
+    + The average Y(0) for never takers is 0; The average Y(0) for defiers is 0; The average Y(0) for compliers is 3; The average Y(0) for always takers is 6.
+    + The residual standard deviation is 1 for everyone in the sample.
+
+###(3) R Code for Data Generating  
+
+```{r, message= FALSE}
+library(dplyr)
+library(AER)
+library(ggplot2)
+```
+
+```{r}
+# data simulation for world A: all assumptions are satisfied
+set.seed(1)
+fullA <- data.frame(
+    C = c(rep("compliers", 1000*0.25), rep("never-takers", 1000*0.6), rep("always-takers", 1000*0.15)),
+    Z = sample(c(1,0), 1000, replace = T, prob = c(0.5, 0.5)),
+    D0 = NA,
+    D1 = NA,
+    Y0 = NA,
+    Y1 = NA)
+
+for(i in 1:nrow(fullA)){
+  if(fullA$C[i] == "compliers"){
+    fullA$D0[i] = 0
+    fullA$D1[i] = 1
+  } else if(fullA$C[i] == "never-takers"){
+    fullA$D0[i] = 0
+    fullA$D1[i] = 0
+  } else {
+    fullA$D0[i] = 1
+    fullA$D1[i] = 1  
+  }
+}
+
+fullA[fullA$C == "never-takers",]$Y0 <- rnorm(600, mean = 0, sd = 1)
+fullA[fullA$C == "always-takers",]$Y0 <- rnorm(150, mean = 6, sd = 1)
+fullA[fullA$C == "compliers",]$Y0 <- rnorm(250, mean = 3, sd = 1)
+
+fullA[fullA$C == "never-takers",]$Y1 <- rnorm(600, mean = 0, sd = 1)
+fullA[fullA$C == "always-takers",]$Y1 <- rnorm(150, mean = 6, sd = 1)
+fullA[fullA$C == "compliers", ]$Y1 <- rnorm(250, mean = 7, sd = 1)
+
+# check the simulated data
+unique(fullA[, c(1,3,4)])
+fullA %>% group_by(C) %>% summarise(
+  count = n(),
+  Y0_mean = mean(Y0),
+  Y0_sd = sd(Y0),
+  Y1_mean = mean(Y1),
+  Y1_sd = sd(Y1))
+
+fullA$D <- ifelse(fullA$Z == 1, fullA$D1, fullA$D0)
+fullA$Y <- ifelse(fullA$Z == 1, fullA$Y1, fullA$Y0)
+
+obsA <- fullA %>% dplyr::select(Z,D,Y)
+head(obsA, 3)
+
+```
+
+```{r}
+# data simulation for world B: monotonicity assumption is violated.
+set.seed(2)
+fullB <- data.frame(
+    C = c(rep("compliers", 1000*0.25), rep("never-takers", 1000*0.55), 
+          rep("always-takers", 1000*0.15), rep("defiers", 1000*0.05)),
+    Z = sample(c(1,0), 1000, replace = T, prob = c(0.5, 0.5)),
+    D0 = NA,
+    D1 = NA,
+    Y0 = NA,
+    Y1 = NA)
+
+for(i in 1:nrow(fullB)){
+  if(fullB$C[i] == "compliers"){
+    fullB$D0[i] = 0
+    fullB$D1[i] = 1
+  } else if(fullB$C[i] == "never-takers"){
+    fullB$D0[i] = 0
+    fullB$D1[i] = 0
+  } else if (fullB$C[i] == "defiers"){
+    fullB$D0[i] = 1
+    fullB$D1[i] = 0
+  } else {
+    fullB$D0[i] = 1
+    fullB$D1[i] = 1  
+  }
+}
+
+fullB[fullB$C == "never-takers",]$Y0 <- rnorm(1000*0.55, mean = 0, sd = 1)
+fullB[fullB$C == "always-takers",]$Y0 <- rnorm(1000*0.15, mean = 6, sd = 1)
+fullB[fullB$C == "compliers",]$Y0 <- rnorm(1000*0.25, mean = 3, sd = 1)
+fullB[fullB$C == "defiers",]$Y0 <- rnorm(1000*0.05, mean = 0, sd = 1)
+
+fullB[fullB$C == "never-takers",]$Y1 <- rnorm(1000*0.55, mean = 0, sd = 1)
+fullB[fullB$C == "always-takers",]$Y1 <- rnorm(1000*0.15, mean = 6, sd = 1)
+fullB[fullB$C == "compliers", ]$Y1 <- rnorm(1000*0.25, mean = 7, sd = 1)
+fullB[fullB$C == "defiers", ]$Y1 <- rnorm(1000*0.05, mean = 0, sd = 1)
+
+# check the simulated data
+unique(fullB[, c(1,3,4)])
+fullB %>% group_by(C) %>% summarise(
+  count = n(),
+  Y0_mean = mean(Y0),
+  Y0_sd = sd(Y0),
+  Y1_mean = mean(Y1),
+  Y1_sd = sd(Y1))
+
+fullB$D <- ifelse(fullB$Z == 1, fullB$D1, fullB$D0)
+fullB$Y <- ifelse(fullB$Z == 1, fullB$Y1, fullB$Y0)
+
+obsB <- fullB %>% dplyr::select(Z,D,Y)
+head(obsB, 3)
+
+```
+
+```{r}
+# data simulation for world C: exclusion restriction assumption is violated
+set.seed(3)
+fullC <- data.frame(
+    C = c(rep("compliers", 1000*0.25), rep("never-takers", 1000*0.6), rep("always-takers", 1000*0.15)),
+    Z = sample(c(1,0), 1000, replace = T, prob = c(0.5, 0.5)),
+    D0 = NA,
+    D1 = NA,
+    Y0 = NA,
+    Y1 = NA)
+
+for(i in 1:nrow(fullC)){
+  if(fullC$C[i] == "compliers"){
+    fullC$D0[i] = 0
+    fullC$D1[i] = 1
+  } else if(fullC$C[i] == "never-takers"){
+    fullC$D0[i] = 0
+    fullC$D1[i] = 0
+  } else {
+    fullC$D0[i] = 1
+    fullC$D1[i] = 1  
+  }
+}
+
+fullC[fullC$C == "never-takers",]$Y0 <- rnorm(600, mean = 0, sd = 1)
+fullC[fullC$C == "always-takers",]$Y0 <- rnorm(150, mean = 6, sd = 1)
+fullC[fullC$C == "compliers",]$Y0 <- rnorm(250, mean = 3, sd = 1)
+
+fullC[fullC$C == "never-takers",]$Y1 <- rnorm(600, mean = 0, sd = 1)
+fullC[fullC$C == "always-takers",]$Y1 <- rnorm(150, mean = 8, sd = 1)
+fullC[fullC$C == "compliers", ]$Y1 <- rnorm(250, mean = 7, sd = 1)
+
+# check the simulated data
+unique(fullC[, c(1,3,4)])
+fullC %>% group_by(C) %>% summarise(
+  count = n(),
+  Y0_mean = mean(Y0),
+  Y0_sd = sd(Y0),
+  Y1_mean = mean(Y1),
+  Y1_sd = sd(Y1))
+
+fullC$D <- ifelse(fullC$Z == 1, fullC$D1, fullC$D0)
+fullC$Y <- ifelse(fullC$Z == 1, fullC$Y1, fullC$Y0)
+
+obsC <- fullC %>% dplyr::select(Z,D,Y)
+head(obsC, 3)
+
+```
+
+###(4) Methods and Estimand
+The estimand of interest is __CACE (Complier Average Causal Effect)__, and we will estimate the CACE by performing a TSLS (Two-stage Least Squares) instrumental variable analysis.  
+
+This is a method of estimating causal effect indirectly using instrumental variables. The instrument variable (served as the randomized encouragement) is predictive of the treatment, could be used to isolate a particular kind of targeted causal estimand. A critical feature of this type of study is that only part of the participants would be affected by the encouragement. Those participants whose behaviors could be altered by encouragement are called "compliers", and are the only participants for whom we will make inferences about the effect of the treatment, the effect is thus referred to as the complier average causal effect.  
+
+TSLS is a more general estimation strategy for estimating CACE. Specifically, the first step is to regress the "treatment" variable on the randomized instrument; the second step is then to plug predicted values of the treatment into the regression equation to predict the outcome.  
+
+###(5) Assumptions Required
+The key assumptions required to obtain an unbiased estimate of the CACE effect include:  
+
+* __Ignorability of the instrument__. It refers to the ignorability of the instrument with respect to the potential outcomes (both for the potential outcomes and the treatment). In our example, to meet this assumption, the instrument - receiving the encourage email/letter from the Mayor - is randomly assigned;
+* __Exclusion restriction__. For those individuals whose behavior would not have been changed by the encouragement (never takers and always takers), there is no effect of encouragement on their outcomes. In our example, for new immigrants who would/would not have watched We Speak NYC videos regardless of receiving Mayor's encourage email/letter, their English test scores would stay the same;
+* __Monotonicity__. Simply speaking, there are no defiers. That is, no new immigrants who would watch We Speak NYC videos if they didn't receive the encourage email/letter, and who would not watch if they received the encourage email/letter;
+* __Non-zero correlation between instrument and treatment__. If the instrument (encouragement) does not have an effect on participants' viewing pattern on treatment, in other worlds, no compliers, then the analysis can not be proceeded. In our example, the instrument (receiving the encourage email/letter from the Mayor) would affect a new immigrant's decision on watching the We Speak NYC videos ;
+* __SUTVA (Stable Unit Treatment Value Assumption)__. No interference across units and no hidden versions of the treatment. In other words, each individual's potential outcome is defined in terms of only his or her own treatment assignment.  
+
+###(6) Results  
+The two-stage least square estimates of CACE from three worlds are shown below. Evidently, because world A meets all required assumptions of instrumental variable analysis, its estimate is the closest to the true CACE treatment effect of 4. In contrast, world B and world C both violated one key assumption, monotonicity and exclusion restriction respectively, their TSLS estimates of CACE effects are biased. 
+
+In term of the estimate of world A, the causal interpretation is:  
+__The effect of watching _We Speak NYC videos_ (versus not watching) for new immigrants who will actually watch the videos when receiving the encourage email/letter from the Mayor, and will not watch if not receiving the encourage email/letter, is about 4 points increase on their English comprehensive test scores.__
+
+```{r}
+# CACE estimate using TSLS for World A, B, C
+fit.a <- ivreg(Y ~ D|Z, data = obsA) 
+fit.b <- ivreg(Y ~ D|Z, data = obsB) 
+fit.c <- ivreg(Y ~ D|Z, data = obsC) 
+
+result <- data.frame(world = c("A", "B", "C"),
+                     cace_estimate = NA,
+                     sd = NA)
+result$cace_estimate <- c(summary(fit.a)$coefficients["D", "Estimate"],
+                          summary(fit.b)$coefficients["D", "Estimate"],
+                          summary(fit.c)$coefficients["D", "Estimate"])
+result$sd <- c(summary(fit.a)$coefficients["D", "Std. Error"],
+               summary(fit.b)$coefficients["D", "Std. Error"],
+               summary(fit.c)$coefficients["D", "Std. Error"])
+print(result)
+
+```
+
+###(7) Discuss the Bias
+To obtain an unbiased estimate of CACE, all assumptions mentioned in (5) need to be satisfied. Violating any of the assumptions could lead to either positive or negative bias.
+
+* For world C, the exclusion restriction assumption is violated. Instead of 0, the effect of the instrument on the always takers is 2. Therefore, the expanded ITT (Intention-to-Treat) formula is:
+
+    $ITT = CACE*Pr(c = complier) + 2*Pr(c = always-taker)$ 
+    
+and $2*Pr(c = always-taker)/Pr(c = complier)$ is the bias. This bias increases with the size of the effect of the instrument on the always takers, and is either shrunk or magnified depending on the ratio of always takers to compliers. In our example, the bias is 1.2 (25% compliers, 15% always takers), and the estimate is thus magnified;  
+
+* For world B, the monotonicity assumption is violated. The Pr(c = definer) is not zero in the ITT formula, accordingly, The bias is:
+
+   $Pr(c = defier)/(Pr(c = complier) - Pr(c = defier))$  
+  
+Evidently, the bias will disappear if the effect of the treatment on the outcome is the same for compliers and defiers. But any difference between the causal effect of the treatment on the outcomes will be magnified if the proportion of defiers is high relative to the proportion of compliers.
+
+###(8) Conclusion  
+Instrumental variable analysis is a causal inference strategy that in some scenarios when the argument for ignorability of the treatment assignment seems weak, there might exist another variable which does appear to be randomly assigned (or conditionally randomly assigned). If the instrument is predictive of the treatment, a simple comparison of the outcomes across randomized group will yield an estimand called ITT (Intention-to-Treat). Further, this encouragement design can be applied to estimate causal effect of a targeted group of participants in this study, that is, the compliers, those individuals whose viewing patterns could be altered by encouragement. Compliers are the only participants in the study for whom we can conceptualize counterfactuals with regard to viewing behavior, and the effect is CACE (Complier Average Causal Effect). CACE is a special case of the local average treatment effect (LATE).  
+
+However, to yield an unbiased estimate of CACE, the key assumptions (i.e., ignorability of the instrument, monotonicity, restriction restriction) need to be all satisfied, otherwise, the causal effect estimate would be biased (as demonstrated in section 7), either shrunk or magnified. Therefore, before applying this method, we should carefully check the assuptions. Especially, when we have "weak instruments" (that is when there isn't a sufficiently strong relationship between the instruments and the treatment), we can only be able to make inferences about a small proportion of the sample who may or
+may not be representative of the population we care about; and it makes more sense to focus on the ITT estimate instead since (if ignorability holds) this is unbiased and proportional to the treatment effect for compliers (assuming exclusion).

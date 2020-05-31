@@ -1,0 +1,245 @@
+---
+title: "HW5: Instrumental Variables Simulation"
+author: "Yongchao Zhao"
+date: "11/3/2018"
+output: word_document
+---
+
+## Objective
+The goal of this exercise is to simulate data consistent with the assumptions of the IV estimaator we discussed in class (and described in the Angrist, Imbens, Rubin article posted on the Classes site). We will also evaluate the properties of different approaches to estimating the Complier Average Causal Effect.  
+
+## Part A: Generate and explore the data for the population
+In this section you will simulate data consistent with the assumptions. We will generate data for a sample of 1000 individuals.  
+
+## Question 1: Simulate the data as god/goddess/supreme being of your choice
+(a) Simulate compliance status. Assume that 25% of individuals are compliers, 60% are never takers, and 15% are always takers. Generate D(0) and D(1) vectors to reflect this. You can also generate a vector
+indicating compliance type, C, if it is helpful to you.  
+```{r}
+# simulate compliance status
+dat.full <- data.frame(
+    C = c(rep("compliers", 1000*0.25), rep("never-takers", 1000*0.6), rep("always-takers", 1000*0.15)),
+    D0 = NA,
+    D1 = NA
+)
+
+for(i in 1:nrow(dat.full)){
+  if(dat.full$C[i] == "compliers"){
+    dat.full$D0[i] = 0
+    dat.full$D1[i] = 1
+  } else if(dat.full$C[i] == "never-takers"){
+    dat.full$D0[i] = 0
+    dat.full$D1[i] = 0
+  } else {
+    dat.full$D0[i] = 1
+    dat.full$D1[i] = 1  
+  }
+}
+
+#check the simulated data
+table(dat.full$C, useNA = "ifany")
+unique(dat.full)
+
+```
+
+(b) Which compliance group has been omitted from consideration? What assumption does that imply?  
+Solutions.  
+ The group of defiers (D(0) = 1 and D(1) = 0) has been omitted from consideration, which implies the assumption of monotonicity.  
+ 
+(c) Simulate the potential outcomes in a way that meets the following criteria:  
+(i) The exclusion restriction is satisfied.  
+(ii) The average treatment effect for the compliers is 4.  
+(iii) The average Y(0) for never takers is 0; The average Y(0) for compliers is 3; The average Y(0) for always
+takers is 6.  
+(iv) The residual standard deviation is 1 for everyone in the sample. 
+
+```{r}
+# simulate the potential outcomes
+set.seed(123)
+
+dat.full$Y0 <- NA
+dat.full[dat.full$C == "never-takers",]$Y0 <- rnorm(600, mean = 0, sd = 1)
+dat.full[dat.full$C == "always-takers",]$Y0 <- rnorm(150, mean = 6, sd = 1)
+dat.full[dat.full$C == "compliers",]$Y0 <- rnorm(250, mean = 3, sd = 1)
+
+dat.full$Y1 <- NA
+dat.full[dat.full$C == "never-takers",]$Y1 <- rnorm(600, mean = 0, sd = 1)
+dat.full[dat.full$C == "always-takers",]$Y1 <- rnorm(150, mean = 6, sd = 1)
+dat.full[dat.full$C == "compliers", ]$Y1 <- rnorm(250, mean = 7, sd = 1)
+
+# check the simulated data
+library(dplyr)
+dat.full %>% group_by(C) %>% summarise(
+  count = n(),
+  Y0_mean = mean(Y0),
+  Y0_sd = sd(Y0),
+  Y1_mean = mean(Y1),
+  Y1_sd = sd(Y1)
+)
+
+```
+
+(d) Calculate the SATE for each of the compliance groups.    
+```{r}
+# calculate SATE by compliance groups
+dat.full %>% group_by(C) %>% summarise(
+      count = n(),
+      SATE = mean(Y1 - Y0)
+  )
+
+```
+
+(e) What is another name for the SATE for the compliers?  
+
+(f) Calculate the overall SATE/ITT using your simulated data.  
+```{r}
+#overall SATE/ITT
+mean(dat.full$Y1 - dat.full$Y0)
+
+```
+
+
+(g) Put D(0), D(1), Y(0), Y(1) into one dataset called dat.full. (You can also include a variable, C,
+indicating compliance group if you created one.)  
+
+```{r}
+head(dat.full)
+```
+
+### Question 2: Playing the role of the researcher to randomize  
+Now switch to the role of the researcher. Pretend that you are running the experiment that we are examining
+for this assignment. Generate a binary indicator for the ignorable treatment assignment. Probability of
+receiving the treatment should be .5.  
+
+```{r}
+set.seed(234)
+ind <- rbinom(n = 1000, size = 1, prob = .5)
+table(ind)
+
+```
+
+### Question 3: Back to playing god (researcher???)  
+Use dat.full to create a dataset that the researcher would actually get to see given the Z generated in Question 2. It should only have D, Z, and Y in it. Call it dat.obs.  
+
+```{r}
+set.seed(234)
+temp <-dat.full
+temp$Z <- ind
+
+# table(Z=temp$Z, D1=temp$D1)
+# table(Z=temp$Z, D0=temp$D0)
+
+temp$D <- ifelse(temp$Z == 1, temp$D1, temp$D0)
+temp$Y <- ifelse(temp$Z == 1, temp$Y1, temp$Y0)
+
+dat.obs <- temp %>% select(Z,D,Y)
+head(dat.obs)
+
+```
+
+### Question 4: Researcher again
+(a) Estimate the percent of compliers, never takers and always takers assuming that there are no defiers. Use only information in dat.obs.  
+
+```{r}
+summary(lm(D~Z, data=dat.obs))
+(p.compliers <- coef(lm(D~Z, data=dat.obs))[2])
+
+```
+
+(b) Estimate the naive regression estimate of the effect of the treatment on the outcome. Which estimand that we discussed in class is this equivalent to?  
+
+It is the"naive comparison 1-as treated" analysis discussed in class, which simply makes comparisons between those who received the treatment and those who did not.  
+```{r}
+summary(lm(Y~D, data = dat.obs))
+
+```
+
+(c) Estimate the intention-to-treat effect.  
+
+```{r}
+summary(lm(Y~Z, data=dat.obs))
+(itt <- coef(lm(Y~Z, data=dat.obs))[2])
+
+```
+
+(d) Calculate an estimate of the CACE by dividing the ITT estimate by the percent of compliers in the
+sample.  
+```{r}
+# calculate CACE: ITT/Pr(compliers)
+(cace <- itt/p.compliers)
+
+# another way to compute CACE: IIT-Z-on-Y/IIT-Z-on-D
+(z_on_y <- dat.obs %>% group_by(Z) %>% summarise(mean(Y))) 
+(itt_z_on_y <- z_on_y[2,2] - z_on_y[1,2])
+
+(z_on_d <- dat.obs %>% group_by(Z) %>% summarise(mean(D))) 
+(itt_z_on_d <- z_on_d[2,2] - z_on_d[1,2])
+
+(cace2<- itt_z_on_y/itt_z_on_d)
+
+```
+
+(e) Estimate the CACE by performing two stage least squares on your own (that is without using an IV function in the R package AER).  
+
+```{r}
+# stage 1: treatment on instrument
+stage1.fit <- lm(D ~ Z, data = dat.obs)
+d_hat <- fitted.values(stage1.fit)
+
+# stage2: outcome on fitted treatment
+stage2.fit <- lm(dat.obs$Y ~ d_hat)
+summary(stage2.fit)
+
+```
+
+(f) Provide an estimate of CACE and it's standard error by using the ivreg command.  
+
+```{r}
+# way 2: ivreg() in "AER" package
+library(AER)
+iv.fit <- ivreg(Y ~ D|Z, data = dat.obs)
+coef(summary(iv.fit))
+
+#way 2: tsls() in "sem" package
+library(sem)
+tsls.fit <- tsls(Y ~ D, ~ Z, data = dat.obs)
+coef(summary(tsls.fit))
+
+```
+
+(g) Simulate a sampling distribution for the estimator used in (f). Is the estimator unbiased? Also report the standard deviation of the sampling distribution and compare to the standard error in (f).
+
+```{r}
+# sampling simulation with 100,000 repetitions
+n <- 100000
+sim.cace<-rep(NA, n)
+
+for(i in 1:n){
+  set.seed(i)
+  new.dat.full <- dat.full
+  new.dat.full$Z <- rbinom(n = 1000, size = 1, prob = .5)
+  
+  new.dat.full$D <- ifelse(new.dat.full$Z == 1, new.dat.full$D1, new.dat.full$D0)
+  new.dat.full$Y <- ifelse(new.dat.full$Z == 1, new.dat.full$Y1, new.dat.full$Y0)
+  new.dat.obs <- new.dat.full %>% select(Z,D,Y)
+  
+  fit <- ivreg(Y ~ D|Z, data = new.dat.obs)
+  sim.cace[i] = coef(summary(fit))[2]
+}
+
+summary(sim.cace)
+sd(sim.cace)
+
+hist(sim.cace, main = "CACE estimate from sampling simulation", xlab = "estimated CACE")
+abline(v = mean(sim.cace), col="red")
+
+```
+
+
+
+
+
+
+
+
+
+

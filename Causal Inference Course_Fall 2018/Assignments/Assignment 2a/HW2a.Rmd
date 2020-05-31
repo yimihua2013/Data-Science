@@ -1,0 +1,185 @@
+---
+title: "Assignment_2a"
+author: "Yongchao Zhao"
+date: "9/11/2018"
+output: word_document
+---
+
+## Question 1: Caliculating ATE (all seeing/omniscient)
+**(a) Please simulate a dataset consistent with the assumptions below while demonstrating an average treatment effect (ATE) of approximately 5.**   
+
+```{r}
+# Data Generating Process (DGP)
+set.seed(1234)
+
+# population size is 1000 (sample size? since we are asked to compute SATE)
+N <- 1000
+# pretest quiz score ~ N(65, 3)
+pre_score <- rnorm(N, mean = 65, sd = 3)
+
+# error terms ~ N(0, 1)
+error_0 <- rnorm(N, mean = 0, sd = 1)
+error_1 <- rnorm(N, mean = 0, sd = 1)
+
+# potential post-test score Y(0) and Y(1)
+post_0 <- 10 + 1.1*pre_score + 0 + error_0
+post_1 <- 10 + 1.1*pre_score + 5 + error_1
+
+# generate the simulated dataset
+my_data <- data.frame(stuID = 1:1000, pre_score, post_0, post_1)
+
+head(my_data)
+summary(my_data[, -1])
+
+```
+
+**(b) What is your interpretation of tau?**   
+
+Students who received the treatment effect (home tutors) have a score of 5 points higher on average than had the students NOT received the treatment.
+
+**(c) Please calculate SATE.**  
+
+The SATE is 5.014443.
+
+```{r}
+# individual treatement effect
+TE <- my_data$post_1 - my_data$post_0
+
+# compute SATE
+(SATE_t <- mean(TE))
+
+```
+
+**(d) Why is SATE different from tau?**   
+
+The computed SATE from simulated dataset is different from tau = 5 because the two post-test scores Y(0) and Y(1) are generated based on two seperate linear functions. Althougn the error terms are both normal distributions with mean of 0 and standard deviation of 1, the actual data would be slightly different.
+  
+**(e) How would you interpret the intercept in the DGP for Y(0) and Y(1)?**    
+ 
+The intercept (beta-0 = 10) in Y(0) indicates that students who scored 0 points in the pretest quiz would be expected to score 10 points on average in the post-test, if they don't receive extra home tutoring before the second attempt;  
+
+The intercept (beta-0 + tau = 15) in Y(1) indicates that students who scored 0 ponits in the pretest quiz would be expected to score 15 points on average in the post-test, if they received extra home tutoring before taking the quiz again. 
+
+**(f) How would you interpret the beta-1 coefficient?**   
+
+Comparing students whose pretest quiz scores differ by 1 point, we would expect to see a difference of 1.1 points in their post-test scores.
+
+## Question 2: Estimating ATE (not all seeing/researchers' view)  
+
+**(a) Using the same simulated dataset used in the previous case where tau = 5, please randomly assign students to treatment and control groups. Then, create the observed data set which must include pretest scores, treatment assignment and observed y.**  
+_Hint: sample() is the command in R to draw out random samples._  
+
+```{r}
+# generate observed dataset
+observed_data <- my_data
+
+# randomly assign students into treatment group (home tutors) and control group (business-as-usual) 
+t_group <- sample(observed_data$stuID, 500, replace = F)
+observed_data$treatment <- ifelse(observed_data$stuID %in% t_group, 1, 0)
+
+# generate values for observed score (Y[1] for treatement group, Y[0] for control group)
+observed_data$observed_score <- ifelse(observed_data$treatment == 1, observed_data$post_1, observed_data$post_0)
+
+# check the dataset
+head(observed_data)
+
+observed_data$treatment <- as.factor(observed_data$treatment)
+summary(observed_data[-1])
+
+```
+
+**(b) You can also use rbinom function to assign treatment. What’s the difference between rbinom and sample function?**  
+
+The sample function takes a random sample of specified size from a population, with or without replacement, like choosing a number of cards from a pack of shuffled cards. For our case, it is a non-replacement sampling. We would get a balanced group size of treatment and control (500 in both groups).
+
+The rbinom function considers the probability of success on a trial, for example, flipping a coin according to a given probability of 0.5. For our case, we simulate 1000 flips to assign students into either treatment or control group. The group size could be unbalanced, as shown in the example below (505 vs 495).
+
+```{r}
+observed_data2 <- my_data
+observed_data2$treatment <- rbinom(n = 1000, size = 1, prob = 0.5)
+table(observed_data2$treatment, useNA = "ifany")
+# observed_data2$observed_score <- ifelse(observed_data2$treatment == 1, observed_data2$post_1, observed_data2$post_0)
+# head(observed_data2)
+# observed_data2$treatment <- as.factor(observed_data2$treatment)
+# summary(observed_data2[-1])
+# (avgs_0 <- tapply(observed_data2$observed_score, observed_data2$treatment, mean))
+# avgs_0 [[2]] - avgs_0[[1]]
+
+```
+
+**(c) Now please estimate SATE using a difference in means.**   
+
+```{r}
+# compute the means of treatment and control group
+(avgs <- tapply(observed_data$observed_score, observed_data$treatment, mean))
+
+# estimated SATE via the diffenrence in group means
+(SATE_e <- avgs[[2]] -avgs[[1]])
+
+```
+
+
+**(d) Is this estimate close to the true SATE? Divide the difference between SATE and estimated SATE by the standard deviation of the observed outcome, Y.**  
+
+The estimated SATE (SATE_e = 5.142255) is relatively close to the true SATE (SATE_t = 5.014443). 
+
+```{r}
+(SATE_t-SATE_e)/sd(observed_data$observed_score)
+```
+
+
+**(e) Why is estimated SATE different from SATE and tau?**  
+
+From researchers' view, we now only have factual post-test scores available, the observed SATE is an estimated difference of treatment and control goup means. Thus, the observed SATE is different from the true SATE and tau.  
+
+Moreover, because the treatment is randomly assigned in our example, the observed SATE can be used to get an unbiased estimate of the SATE. 
+
+## Question 3: Use Linear Regression to estimate the treatment effect
+**(a) Now we will use linear regression to estimate SATE for the observed data set created by Question 2. With this set up, we will begin to better understand some fundamental assumptions crucial for the later R homework assignments.**  
+
+Using the observed dataset from Question 2, the simple linear regression using only observed post-test scores as response varible yields an estimate of SATE as 5.1423 (with a standard error of 0.2203).  
+
+```{r}
+
+# simple linear regression
+summary(lm(observed_score ~ treatment, data = observed_data))
+
+```
+
+**(b) What is gained by using linear regression to estimate ATE instead of the mean difference estimation from above?**  
+Using gained scores as transformed response variable, the linear regression yields an estimate of AMT as 5.04036 (with a standard error of 0.06726).  
+
+```{r}
+# linear regression using gained scores as transformed response variable
+summary(lm(observed_score - pre_score ~ treatment, data = observed_data))
+```
+
+
+**(c) What assumptions do we need to make in order to believe this estimate?**  
+In order to believe the estimate using gained scores from (b), an extra assumption needs to be make, namely, the coefficient for pretest score (_"pre_score" shown in the linear regression below_) is 1.  
+
+Plus, as the following regression output shows, the effciency of the estimate is improved by controlling for pretest scores (estimate of ATE as 5.02874 with standard error of 0.06374).
+
+```{r}
+# controling for pre-treatment predictors
+summary(lm(observed_score ~ treatment + pre_score, data = observed_data))
+```
+
+## Challege Question
+**(a) Data simulation**  
+
+```{r}
+# data simulation
+EY_0 <- 35 + 0.6 * pre_score
+Y0 <- EY_0 + error_0
+
+EY_1 <- 15 + 1 * pre_score
+Y1 <- EY_1 + error_1
+
+# plots
+hist(EY_0)
+hist(EY_1)
+
+```
+
+

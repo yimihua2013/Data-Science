@@ -1,0 +1,129 @@
+---
+title: "Assignment2b_Problem 1"
+author: "Yongchao Zhao"
+date: "9/18/2018"
+output: word_document
+---
+
+## Problem 1  
+
+Recall that in Assignment 1 we created a simulated dataset that could have manifested as a result of a completely randomized experiment. In that assignment, we asked about the difference between estimating ATE by using the difference in means versus using linear regression with pretest score as a covariate. In this exercise, we will explore the properties of these two different approaches to estimating our ATEs more deeply through simulation. We would like you to compare these approaches with respect to both bias and efficiency.  
+
+(a)Write a function to generate the data generating process (DGP) from Assignment 1 with arguments for sample size, the coefficient on the covariate, and the random seed. Then use this function to simulate a data set with sample size equal to 100, seed equal to 1234, and the coefficient on the covariate set to 1.1.
+
+```{r}
+# function of data generating process (DGP)
+dgp <- function(n, seed, coef){
+      set.seed(seed)
+      pre_score <- rnorm(n, mean=65, sd=3)
+      
+      error_0 <- rnorm(n, mean = 0, sd = 1)
+      error_1 <- rnorm(n, mean = 0, sd = 1)
+      
+      post_0 <- 10 + coef*pre_score + 0 + error_0
+      post_1 <- 10 + coef*pre_score + 5 + error_1
+      
+      return (data.frame(stuID = 1:n, pre_score, post_0, post_1))
+}
+
+#  simulated dataset with sample size of 100, seed equal to 1234, and the coefficient on the covariate set to 1.1
+
+mydata <- dgp(n=100, seed=1234, coef=1.1)
+
+head(mydata)
+summary(mydata[, -1])
+
+# calculate SATE
+(SATE_t <- mean(mydata$post_1) - mean(mydata$post_0))
+
+```
+
+(b)We will now investigate the properties of two estimators of the SATE.    
+• difference in means  
+• linear regression estimate of the treatment effect using the pretest score as a covariate
+
+```{r}
+# Monte Carlo simulation (100,000 times)
+repeats <- 100000
+SATE <- data.frame(SATE_mean = rep(NA, repeats), SATE_regression = rep(NA,repeats))
+for (i in 1:repeats){ 
+  newdata <- mydata
+  selected <- sample(newdata$stuID, 50, replace = F)
+  newdata$treatment <- ifelse(newdata$stuID %in% selected, 1, 0)
+  newdata$outcome <- ifelse(newdata$treatment == 1, newdata$post_1, newdata$post_0)
+
+  avgs <- tapply(newdata$outcome, newdata$treatment, mean)
+  SATE$SATE_mean[i] <- avgs[[2]] - avgs[[1]]
+
+  mymodel<- lm(outcome ~ treatment + pre_score, data = newdata)
+  SATE$SATE_regression[i] <- coef(mymodel)[[2]] 
+}
+
+summary(SATE)
+```
+
+(c)Plot the (Monte Carlo estimate of the) randomization distribution for each of the two estimators: difference in means and regression. Either overlay the plots (with different colors for each) or make sure the xlim on both plots is the same. Also add vertical lines (using different colors) for the SATE and the mean of the randomizaton distribution.   
+
+```{r}
+# plots
+hist(SATE$SATE_mean, xlim = c(3, 8), main = "SATE: difference in means")
+abline(v = c(mean(SATE$SATE_mean), SATE_t), col = c("blue", "red"), lty = c(1, 3))
+
+hist(SATE$SATE_regression, xlim = c(3, 8), main = "SATE: linear regression")
+abline(v = c(mean(SATE$SATE_regression), SATE_t), col = c("blue", "red"), lty = c(1,3))
+
+```
+
+(d)What is the bias and efficiency of each of these two methods? What is the difference between them?    
+
+```{r}
+# bias and efficiency for method 1:difference in means
+(mean_bias <- mean(SATE$SATE_mean)- SATE_t)
+(mean_se <- sd(SATE$SATE_mean)/sqrt(repeats)) # standard error
+
+# bias and efficiency for method 2: linear regression using pretest score as covariate
+(regression_bias <- mean(SATE$SATE_regression)- SATE_t)
+(regression_se <- sd(SATE$SATE_regression)/sqrt(repeats)) # standard error
+
+```
+
+(e)Re-run the simuation with a small coefficient (even 0) for the pretest covariate. Does the small coefficient lead to a different bias and efficiency estimate compared to when the coefficient for pretest was at 1.1 from before?
+
+```{r}
+
+# new data with smaller coefficient for pretest coveriate (coef = 0)
+mydata2 <- dgp(n=100, seed=1234, coef= 0)
+
+head(mydata2)
+summary(mydata2[, -1])
+
+(SATE_t2 <- mean(mydata2$post_1) - mean(mydata2$post_0))
+
+# Monte Carlo simulation (100,000 times)
+SATE_2 <- data.frame(SATE_mean = rep(NA, repeats), SATE_regression = rep(NA,repeats))
+for (i in 1:repeats){ 
+  newdata <- mydata2
+  selected <- sample(newdata$stuID, 50, replace = F)
+  newdata$treatment <- ifelse(newdata$stuID %in% selected, 1, 0)
+  newdata$outcome <- ifelse(newdata$treatment == 1, newdata$post_1, newdata$post_0)
+
+  avgs <- tapply(newdata$outcome, newdata$treatment, mean)
+  SATE_2$SATE_mean[i] <- avgs[[2]] - avgs[[1]]
+
+  mymodel<- lm(outcome ~ treatment + pre_score, data = newdata)
+  SATE_2$SATE_regression[i] <- coef(mymodel)[[2]] 
+}
+
+summary(SATE_2)
+
+# new bias and efficiency for method 1:difference in means
+(mean_bias2 <- mean(SATE_2$SATE_mean)- SATE_t2)
+(mean_se2 <- sd(SATE_2$SATE_mean)/sqrt(repeats))
+
+# new bias and efficiency for method 2: linear regression using pretest score as covariate
+(regression_bias2 <- mean(SATE_2$SATE_regression)- SATE_t2)
+(regression_se2 <- sd(SATE_2$SATE_regression)/sqrt(repeats))
+
+```
+
+
